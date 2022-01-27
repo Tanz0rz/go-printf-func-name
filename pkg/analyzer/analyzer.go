@@ -2,17 +2,15 @@ package analyzer
 
 import (
 	"go/ast"
-	"strings"
-
+	"go/token"
+	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
-
-	"golang.org/x/tools/go/analysis"
 )
 
 var Analyzer = &analysis.Analyzer{
-	Name:     "goprintffuncname",
-	Doc:      "Checks that printf-like functions are named with `f` at the end.",
+	Name:     "addresslowercase",
+	Doc:      "Checks that all addresses are strictly lowercase",
 	Run:      run,
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 }
@@ -20,55 +18,67 @@ var Analyzer = &analysis.Analyzer{
 func run(pass *analysis.Pass) (interface{}, error) {
 	inspector := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	nodeFilter := []ast.Node{
-		(*ast.FuncDecl)(nil),
+		(*ast.BlockStmt)(nil),
 	}
 
 	inspector.Preorder(nodeFilter, func(node ast.Node) {
-		funcDecl := node.(*ast.FuncDecl)
+		blockStmt := node.(*ast.BlockStmt)
 
-		if res := funcDecl.Type.Results; res != nil && len(res.List) != 0 {
+		if len(blockStmt.List) == 0 {
 			return
 		}
 
-		params := funcDecl.Type.Params.List
-		if len(params) < 2 { // [0] must be format (string), [1] must be args (...interface{})
-			return
-		}
+		for _, stmt := range blockStmt.List {
 
-		formatParamType, ok := params[len(params)-2].Type.(*ast.Ident)
-		if !ok { // first param type isn't identificator so it can't be of type "string"
-			return
-		}
+			// Check in constants
+			if declStmt, ok := stmt.(*ast.DeclStmt); ok {
+				if genDecl, ok := declStmt.Decl.(*ast.GenDecl); ok {
+					variable, ok := genDecl.Specs[0].(*ast.ValueSpec); if !ok {
+						continue
+					}
 
-		if formatParamType.Name != "string" { // first param (format) type is not string
-			return
-		}
+					if len(variable.Values) == 0 {
+						continue
+					}
 
-		if formatParamNames := params[len(params)-2].Names; len(formatParamNames) == 0 || formatParamNames[len(formatParamNames)-1].Name != "format" {
-			return
-		}
+					variableValues, ok := variable.Values[0].(*ast.BasicLit); if !ok {
+						continue
+					}
 
-		argsParamType, ok := params[len(params)-1].Type.(*ast.Ellipsis)
-		if !ok { // args are not ellipsis (...args)
-			return
-		}
+					if variableValues.Kind == token.STRING {
+						if !validateString(variableValues.Value) {
+							reportFailure(pass, variableValues.Pos(), variableValues.Value)
+						}
+						continue
+					}
+				}
+			}
 
-		elementType, ok := argsParamType.Elt.(*ast.InterfaceType)
-		if !ok { // args are not of interface type, but we need interface{}
-			return
-		}
+			// Check in assignments
+			if assignStmt, ok := stmt.(*ast.AssignStmt); ok {
+				if len(assignStmt.Rhs) == 0 {
+					continue
+				}
+				for _, expr := range assignStmt.Rhs {
 
-		if elementType.Methods != nil && len(elementType.Methods.List) != 0 {
-			return // has >= 1 method in interface, but we need an empty interface "interface{}"
+					if basicLit, ok := expr.(*ast.BasicLit); ok {
+						if basicLit.Kind == token.STRING {
+							if !validateString(basicLit.Value) {
+								reportFailure(pass, basicLit.Pos(), basicLit.Value)
+							}
+							continue
+						}
+					}
+				}
+			}
+			continue
 		}
-
-		if strings.HasSuffix(funcDecl.Name.Name, "f") {
-			return
-		}
-
-		pass.Reportf(node.Pos(), "printf-like formatting function '%s' should be named '%sf'",
-			funcDecl.Name.Name, funcDecl.Name.Name)
+		return
 	})
 
 	return nil, nil
+}
+
+func reportFailure(pass *analysis.Pass, position token.Pos, value string) {
+	pass.Reportf(position, "string contains address with capital letters: %s", value)
 }
