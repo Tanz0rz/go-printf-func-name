@@ -10,7 +10,7 @@ import (
 
 var Analyzer = &analysis.Analyzer{
 	Name:     "addresslowercase",
-	Doc:      "Checks that all addresses are strictly lowercase",
+	Doc:      "Checks that all addresses in strings are strictly lowercase",
 	Run:      run,
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 }

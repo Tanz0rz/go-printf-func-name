@@ -2,6 +2,10 @@ package p
 
 import "log"
 
+const benignPackageConstString = "Not an package-level address"
+const validPackageConstString = "0x1b175474e89094c44da98b954eedeac495271d0f"
+const invalidPackageConstString = "0x1B175474e89094c44da98b954eedeac495271d0f" // want "string contains address with capital letters"
+
 func printingAllTypesOfStrings(format string, args ...interface{}) {
 	// Constants
 	const benignConstString = "Not an address"
