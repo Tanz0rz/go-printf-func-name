@@ -18,60 +18,52 @@ var Analyzer = &analysis.Analyzer{
 func run(pass *analysis.Pass) (interface{}, error) {
 	inspector := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	nodeFilter := []ast.Node{
-		(*ast.BlockStmt)(nil),
+		(*ast.File)(nil),
 	}
 
 	inspector.Preorder(nodeFilter, func(node ast.Node) {
-		blockStmt := node.(*ast.BlockStmt)
+		file := node.(*ast.File)
 
-		if len(blockStmt.List) == 0 {
-			return
-		}
+		for _, decl := range file.Decls {
 
-		for _, stmt := range blockStmt.List {
-
-			// Check in constants
-			if declStmt, ok := stmt.(*ast.DeclStmt); ok {
-				if genDecl, ok := declStmt.Decl.(*ast.GenDecl); ok {
-					variable, ok := genDecl.Specs[0].(*ast.ValueSpec); if !ok {
-						continue
-					}
-
-					if len(variable.Values) == 0 {
-						continue
-					}
-
-					variableValues, ok := variable.Values[0].(*ast.BasicLit); if !ok {
-						continue
-					}
-
-					if variableValues.Kind == token.STRING {
-						if !validateString(variableValues.Value) {
-							reportFailure(pass, variableValues.Pos(), variableValues.Value)
-						}
-						continue
-					}
-				}
+			// Check for any package-level strings
+			if genDecl, ok := decl.(*ast.GenDecl); ok {
+				checkGenDecl(pass, genDecl)
+				continue
 			}
 
-			// Check in assignments
-			if assignStmt, ok := stmt.(*ast.AssignStmt); ok {
-				if len(assignStmt.Rhs) == 0 {
-					continue
-				}
-				for _, expr := range assignStmt.Rhs {
+			// Check inside all functions
+			if funcDecl, ok := decl.(*ast.FuncDecl); ok {
+				for _, stmt := range funcDecl.Body.List {
 
-					if basicLit, ok := expr.(*ast.BasicLit); ok {
-						if basicLit.Kind == token.STRING {
-							if !validateString(basicLit.Value) {
-								reportFailure(pass, basicLit.Pos(), basicLit.Value)
-							}
+					// Check in constants
+					if declStmt, ok := stmt.(*ast.DeclStmt); ok {
+						if genDecl, ok := declStmt.Decl.(*ast.GenDecl); ok {
+							checkGenDecl(pass, genDecl)
 							continue
 						}
 					}
+
+					// Check in assignments
+					if assignStmt, ok := stmt.(*ast.AssignStmt); ok {
+						if len(assignStmt.Rhs) == 0 {
+							continue
+						}
+						for _, expr := range assignStmt.Rhs {
+
+							if basicLit, ok := expr.(*ast.BasicLit); ok {
+								if basicLit.Kind == token.STRING {
+									if !validateString(basicLit.Value) {
+										reportFailure(pass, basicLit.Pos(), basicLit.Value)
+									}
+									continue
+								}
+							}
+						}
+					}
+					continue
 				}
 			}
-			continue
 		}
 		return
 	})
@@ -81,4 +73,25 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 func reportFailure(pass *analysis.Pass, position token.Pos, value string) {
 	pass.Reportf(position, "string contains address with capital letters: %s", value)
+}
+
+func checkGenDecl(pass *analysis.Pass, genDecl *ast.GenDecl) {
+	variable, ok := genDecl.Specs[0].(*ast.ValueSpec); if !ok {
+		return
+	}
+
+	if len(variable.Values) == 0 {
+		return
+	}
+
+	basicLit, ok := variable.Values[0].(*ast.BasicLit); if !ok {
+		return
+	}
+
+	if basicLit.Kind == token.STRING {
+		if !validateString(basicLit.Value) {
+			reportFailure(pass, basicLit.Pos(), basicLit.Value)
+		}
+		return
+	}
 }
