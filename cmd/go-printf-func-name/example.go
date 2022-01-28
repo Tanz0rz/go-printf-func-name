@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/jirfag/go-printf-func-name/pkg/analyzer"
+	"github.com/Tanz0rz/go-printf-func-name/pkg/analyzer"
 	"golang.org/x/tools/go/analysis"
 )
 
